@@ -1,0 +1,23 @@
+@import url('https://fonts.googleapis.com/css2?family=Anuphan:wght@400;500;600;700&family=Noto+Serif+Thai:wght@600;700&display=swap');
+@import "tailwindcss";
+
+/* โทนสีและฟอนต์ของบ้านบรู ใช้เป็นคลาส Tailwind ได้ เช่น bg-roast-900, text-caramel, font-display */
+@theme {
+  --font-sans: 'Anuphan', 'Leelawadee UI', 'Tahoma', system-ui, sans-serif;
+  --font-display: 'Noto Serif Thai', 'Anuphan', Georgia, serif;
+
+  --color-roast-950: #1c130e; /* เมล็ดคั่วเข้ม */
+  --color-roast-900: #2a1c15;
+  --color-roast-800: #3d2a20;
+  --color-roast-600: #6b4c3b;
+  --color-roast-400: #a88a78;
+  --color-roast-200: #e6dbd3;
+  --color-roast-100: #f1ebe6;
+  --color-caramel: #c7843a;     /* สีเน้น */
+  --color-caramel-soft: #f3e3cf;
+  --color-milk: #f5f4f2;        /* พื้นหลังหน้า */
+}
+
+body {
+  background: var(--color-milk);
+}

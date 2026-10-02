@@ -4,9 +4,10 @@ import KpiCard from './components/KpiCard'
 import ChartCard from './components/ChartCard'
 import DailySalesChart, { DailyLegend } from './components/DailySalesChart'
 import BranchSalesChart from './components/BranchSalesChart'
+import CustomerSection from './components/CustomerSection'
 import { CoinsIcon, ReceiptIcon, CupIcon, UsersIcon } from './components/Icons'
 import {
-  normalizeRows, computeKpis, dailySales, salesByBranch,
+  normalizeRows, normalizeCustomers, computeKpis, dailySales, salesByBranch,
   formatBaht, formatNumber, formatShortDate,
 } from './lib/metrics'
 
@@ -14,6 +15,7 @@ export default function App() {
   const [rows, setRows] = useState([])
   const [status, setStatus] = useState('loading') // loading | ready | error
   const [error, setError] = useState('')
+  const [customers, setCustomers] = useState(null) // null = ยังโหลดไม่เสร็จ / โหลดไม่ได้
 
   // โหลด public/sales.csv ตอนเปิดหน้า
   useEffect(() => {
@@ -29,6 +31,14 @@ export default function App() {
         setError(err.message)
         setStatus('error')
       },
+    })
+    // ข้อมูลลูกค้า (แยกโหลด ถ้าไม่มีไฟล์ ส่วนยอดขายยังแสดงได้ตามปกติ)
+    Papa.parse(`${import.meta.env.BASE_URL}customers_clean.csv`, {
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      complete: (result) => setCustomers(normalizeCustomers(result.data)),
+      error: () => setCustomers([]),
     })
   }, [])
 
@@ -57,6 +67,9 @@ export default function App() {
               <Pill>{formatShortDate(firstDay)} – {formatShortDate(lastDay)}</Pill>
               <Pill>{branches.length} สาขา</Pill>
               <Pill>{formatNumber(rows.length)} รายการสินค้า</Pill>
+              <a href="#customers" className="rounded-full border border-caramel/60 bg-caramel/15 px-3 py-1 text-caramel-soft transition-colors hover:bg-caramel/30 focus-visible:outline-2 focus-visible:outline-caramel">
+                ดูข้อมูลลูกค้าสมาชิก ↓
+              </a>
             </div>
           </div>
         </div>
@@ -87,8 +100,10 @@ export default function App() {
           </div>
         </div>
 
+        {customers?.length > 0 && <CustomerSection customers={customers} rows={rows} />}
+
         <footer className="mt-8 text-center text-xs text-roast-400">
-          ข้อมูลจาก public/sales.csv · ยอดขาย = qty × unit_price
+          ข้อมูลจาก public/sales.csv และ customers_clean.csv · ยอดขาย = qty × unit_price
         </footer>
       </main>
     </div>

@@ -177,3 +177,126 @@ export function formatShortDate(dateKey) {
   const [y, m, d] = dateKey.split('-').map(Number)
   return thaiShortDate.format(new Date(Date.UTC(y, m - 1, d)))
 }
+
+// ---------- ลูกค้าสมาชิก (customers_clean.csv) ----------
+
+export const AGE_ORDER = ['ต่ำกว่า 18', '18-24', '25-34', '35-44', '45-54', '55+']
+export const GENDER_ORDER = ['หญิง', 'ชาย', 'ไม่ระบุ']
+
+/** แปลงแถวจาก customers_clean.csv: ตัดช่องว่าง และแปลง flag เป็น boolean */
+export function normalizeCustomers(rawRows) {
+  const bool = (v) => String(v ?? '').trim().toLowerCase() === 'true'
+  return rawRows
+    .map((r) => ({
+      customerId: String(r.customer_id ?? '').trim(),
+      gender: String(r.gender ?? '').trim(),
+      ageGroup: String(r.age_group ?? '').trim(),
+      homeBranch: String(r.home_branch ?? '').trim(),
+      joinedDate: String(r.joined_date ?? '').trim().slice(0, 10),
+      phoneShared: bool(r.phone_shared),
+      isMinor: bool(r.is_minor),
+    }))
+    .filter((c) => c.customerId)
+}
+
+/**
+ * KPI ของลูกค้า (เทียบกับยอดขาย rows ที่ผ่าน normalizeRows แล้ว)
+ * - active: สมาชิกที่มีบิลอย่างน้อย 1 บิลในข้อมูลยอดขาย
+ * - memberRevenueShare: ยอดขายจากแถวที่มี customer_id ÷ ยอดขายทั้งหมด
+ * - avgBillMember / avgBillWalkin: ยอดต่อบิล แยกบิลสมาชิกกับบิลลูกค้าทั่วไป
+ * - newLast30: สมัครใน 30 วันก่อนวันสมัครล่าสุดในข้อมูล
+ */
+export function customerKpis(customers, rows) {
+  const buyers = new Set()
+  const bills = new Map() // orderId → { revenue, member }
+  let memberRevenue = 0
+  let totalRevenue = 0
+  for (const r of rows) {
+    totalRevenue += r.revenue
+    if (r.customerId) {
+      buyers.add(r.customerId)
+      memberRevenue += r.revenue
+    }
+    const b = bills.get(r.orderId) ?? { revenue: 0, member: false }
+    b.revenue += r.revenue
+    b.member ||= Boolean(r.customerId)
+    bills.set(r.orderId, b)
+  }
+  let mSum = 0, mN = 0, wSum = 0, wN = 0
+  for (const b of bills.values()) {
+    if (b.member) { mSum += b.revenue; mN++ } else { wSum += b.revenue; wN++ }
+  }
+  const active = customers.filter((c) => buyers.has(c.customerId)).length
+  const lastJoin = customers.reduce((m, c) => (c.joinedDate > m ? c.joinedDate : m), '')
+  const cutoff = new Date(`${lastJoin}T00:00:00Z`)
+  cutoff.setUTCDate(cutoff.getUTCDate() - 29)
+  const cutoffKey = cutoff.toISOString().slice(0, 10)
+  return {
+    total: customers.length,
+    active,
+    activeRate: customers.length ? active / customers.length : 0,
+    memberRevenueShare: totalRevenue ? memberRevenue / totalRevenue : 0,
+    avgBillMember: mN ? mSum / mN : 0,
+    avgBillWalkin: wN ? wSum / wN : 0,
+    memberBillShare: bills.size ? mN / bills.size : 0,
+    newLast30: customers.filter((c) => c.joinedDate >= cutoffKey).length,
+    lastJoin,
+    minors: customers.filter((c) => c.isMinor).length,
+    phoneShared: customers.filter((c) => c.phoneShared).length,
+  }
+}
+
+/**
+ * จำนวนสมัครสมาชิกรายเดือน พร้อมบอกว่าเดือนไหนข้อมูลไม่ครบ
+ * (เดือนสุดท้ายนับถึงวันสมัครล่าสุดในข้อมูลเท่านั้น)
+ */
+export function signupsByMonth(customers) {
+  const map = new Map()
+  let lastJoin = ''
+  for (const c of customers) {
+    const m = c.joinedDate.slice(0, 7)
+    map.set(m, (map.get(m) ?? 0) + 1)
+    if (c.joinedDate > lastJoin) lastJoin = c.joinedDate
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, count]) => {
+      const [y, mo] = month.split('-').map(Number)
+      const fullDays = new Date(Date.UTC(y, mo, 0)).getUTCDate()
+      const days = month === lastJoin.slice(0, 7) ? Number(lastJoin.slice(8, 10)) : fullDays
+      return { month, count, days, fullDays, partial: days < fullDays }
+    })
+}
+
+/** นับลูกค้าตามคอลัมน์ key เรียงตาม order ที่กำหนด พร้อมสัดส่วน */
+export function countCustomersBy(customers, key, order) {
+  const map = new Map()
+  for (const c of customers) map.set(c[key], (map.get(c[key]) ?? 0) + 1)
+  const keys = order ?? [...map.keys()].sort((a, b) => map.get(b) - map.get(a))
+  return keys
+    .filter((k) => map.has(k))
+    .map((k) => ({ label: k, count: map.get(k), share: map.get(k) / customers.length }))
+}
+
+/** สมาชิกแยกตามสาขาประจำ: จำนวนทั้งหมด และสัดส่วนที่เคยซื้อ เรียงมากไปน้อย */
+export function membersByBranch(customers, rows) {
+  const buyers = new Set(rows.filter((r) => r.customerId).map((r) => r.customerId))
+  const map = new Map()
+  for (const c of customers) {
+    const b = map.get(c.homeBranch) ?? { branch: c.homeBranch, members: 0, active: 0 }
+    b.members++
+    if (buyers.has(c.customerId)) b.active++
+    map.set(c.homeBranch, b)
+  }
+  return [...map.values()]
+    .map((b) => ({ ...b, activeRate: b.active / b.members }))
+    .sort((a, b) => b.members - a.members)
+}
+
+/** '2026-09' → "ก.ย. 69" */
+export function formatThaiMonth(ym) {
+  const [y, m] = ym.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('th-TH', {
+    month: 'short', year: '2-digit', timeZone: 'UTC',
+  })
+}
